@@ -1,0 +1,6 @@
+{
+  "name": "v52.2 3D Fluid Dynamics Simulator",
+  "description": "A sophisticated 3D fluid dynamics simulator for visualizing and analyzing conceptual incompressible fluid flows, featuring real-time 3D rendering, detailed metrics, and AI-powered interpretation of phenomena like turbulence and vortex stretching.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
