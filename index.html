@@ -101,6 +101,8 @@
         /* Dynamic Tooltip styles */
         #dynamicTooltip { position: absolute; background-color: rgba(31, 41, 55, 0.95); color: white; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; line-height: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); white-space: normal; max-width: 250px; z-index: 2000; pointer-events: none; opacity: 0; transition: opacity 0.2s ease-in-out; top: -9999px; left: -9999px; }
         #dynamicTooltip.show { opacity: 1; }
+        .tooltip-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; align-items: center; }
+        .tooltip-grid-label { font-weight: 600; text-align: right; }
 
         /* 3D Visualization Container */
         #threeJsContainer { width: 100%; height: 500px; background-color: #f0f0f0; border-radius: 0.5rem; overflow: hidden; cursor: grab; position: relative; }
@@ -139,6 +141,65 @@
         }
         .tab-content.active {
             display: block;
+        }
+
+        /* 2D Slice Viewer Grid styles */
+        #sliceGridContainer {
+            display: grid;
+            grid-template-columns: repeat(var(--slice-grid-n, 16), 1fr);
+            grid-template-rows: repeat(var(--slice-grid-n, 16), 1fr);
+            width: 400px;
+            height: 400px;
+            border: 1px solid #d1d5db; /* gray-300 */
+            border-radius: 0.375rem;
+            background-color: #f9fafb; /* gray-50 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-right: none;
+            border-bottom: none;
+            cursor: pointer;
+        }
+        .slice-grid-cell {
+            position: relative;
+            overflow: hidden;
+            border-right: 1px solid rgba(0, 0, 0, 0.1);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            transition: background-color 0.4s ease-out;
+        }
+        .slice-grid-cell:nth-child(var(--slice-grid-n)n) { border-right: none; }
+        .slice-grid-cell:nth-last-child(-n+var(--slice-grid-n)) { border-bottom: none; }
+
+        /* Fading highlight effect for hovered cell */
+        .slice-grid-cell-highlight {
+             background-color: rgba(255, 255, 255, 0.6) !important;
+             transition: background-color 0.05s ease-in;
+        }
+        /* Outline for selected cell */
+        .slice-grid-cell-selected {
+            outline: 2px solid #cccccc;
+            outline-offset: -2px;
+            z-index: 10;
+        }
+        /* Outline for multi-selected cells */
+        .slice-grid-cell-multiselected {
+            outline: 1px solid #374151; /* Dark Gray */
+            outline-offset: -1px;
+            z-index: 5;
+        }
+
+        #sliceInfoPanel {
+            text-align: center;
+            font-size: 0.875rem;
+            color: #4b5563; /* gray-600 */
+        }
+        #sliceLiveValue {
+            font-weight: 700;
+            font-family: monospace;
+            background-color: #e5e7eb; /* gray-200 */
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            margin-left: 0.5rem;
+            min-width: 6em;
+            display: inline-block;
         }
 
     </style>
@@ -456,7 +517,7 @@
                 
                 <div id="slicingContent" class="tab-content">
                     <h3 class="text-lg font-semibold text-gray-700 mb-2">2D Slice Viewer (at final state)</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 items-center bg-gray-100 p-3 rounded-md">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2 items-center bg-gray-100 p-3 rounded-md">
                         <div>
                             <label for="sliceVariableSelect" class="block text-sm font-medium text-gray-700 mb-1">Variable</label>
                             <select id="sliceVariableSelect" class="bg-white block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-base h-10">
@@ -477,16 +538,37 @@
                             <label for="sliceIndexSlider" class="block text-sm font-medium text-gray-700">Slice Index: <span id="sliceIndexLabel">0</span></label>
                             <input type="range" id="sliceIndexSlider" min="1" max="16" value="8" class="w-full mt-2">
                         </div>
+                        <div class="col-span-full flex items-center justify-center mt-2">
+                             <input type="checkbox" id="multiSelectCheckbox" class="form-checkbox h-4 w-4 text-indigo-600 transition duration-150 ease-in-out rounded-md cursor-pointer">
+                             <label for="multiSelectCheckbox" class="ml-2 text-sm font-medium text-gray-700 cursor-pointer">Enable Multi-Pixel Analysis</label>
+                        </div>
                     </div>
-                    <div class="flex flex-col sm:flex-row justify-center items-center sm:items-start gap-4">
-                         <canvas id="sliceCanvas" width="400" height="400" class="border border-gray-400 rounded-md shadow-lg"></canvas>
-                         <div class="flex flex-col items-center">
-                            <canvas id="sliceColorbarCanvas" width="20" height="400" class="border border-gray-400 rounded-md"></canvas>
-                            <div class="flex justify-between w-full text-xs mt-1 px-1">
-                                <span id="sliceColorbarMin">0.0</span>
-                                <span id="sliceColorbarMax">1.0</span>
+                    <p id="multiSelectActiveMessage" class="hidden text-sm font-semibold text-center text-gray-700 bg-gray-100 border border-gray-300 rounded-md py-1 px-3 my-2 mx-auto w-full max-w-[400px] lg:max-w-[824px]">
+                        Multi-Pixel Analysis Active: Single-click to add/remove points, double-click grid to analyze.
+                    </p>
+                    <div class="flex flex-col lg:flex-row justify-center items-start gap-6 mt-4">
+                        <!-- Left Column: Graphical view and its color bar -->
+                        <div class="flex flex-col items-center">
+                            <canvas id="sliceCanvas" width="400" height="400" class="border border-gray-400 rounded-md shadow-lg" style="cursor:pointer;"></canvas>
+                            <div class="mt-2 w-full max-w-[400px]">
+                                <canvas id="sliceColorbarCanvas" width="400" height="20" class="w-full h-5 border border-gray-400 rounded-md"></canvas>
+                                <div class="flex justify-between w-full text-xs mt-1">
+                                    <span id="sliceColorbarMin">0.0</span>
+                                    <span id="sliceColorbarMax">1.0</span>
+                                </div>
                             </div>
-                         </div>
+                        </div>
+                        
+                        <!-- Right Column: Numerical Slice Grid -->
+                        <div class="flex flex-col items-center">
+                            <div id="sliceGridContainer" class="flex-shrink-0">
+                                <!-- JS will populate this with a grid of divs -->
+                            </div>
+                           <div id="sliceInfoPanel" class="mt-4 w-full max-w-[400px] text-center">
+                                <span class="text-sm text-gray-600">Hovered Value (<span id="sliceValueSymbol">$N/A$</span>):</span>
+                                <span id="sliceLiveValue" class="font-mono font-bold bg-gray-200 py-1 px-2 rounded-md ml-2">N/A</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -514,51 +596,72 @@
         <div class="modal-content">
             <span class="close-button">&times;</span>
             <h2 class="text-2xl font-bold text-gray-800 mb-4">How to Interpret this Dashboard</h2>
-            
-            <h3 class="text-xl font-semibold text-gray-700 mb-2">1. Understanding this Simulator's Purpose</h3>
-            <p class="mb-4 text-gray-700">This simulator provides a **conceptual visualization** of **3D incompressible fluid dynamics**. It numerically solves a simplified form of the Navier-Stokes equations on a discrete grid, demonstrating how a fluid's velocity field ($\mathbf{u}$) and a passive scalar (like density or "dye") evolve over time due to advection (transport by flow) and diffusion (spreading).</p>
+
+            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-4">1. The Big Picture: What is this Simulator?</h3>
             <p class="mb-4 text-gray-700">
-                The core equations being modeled are:
-                <br>
-                **Momentum Equation (simplified):**
-                $$ \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} = -\frac{1}{\rho}\nabla p + \nu \nabla^2 \mathbf{u} $$
-                **Incompressibility Condition:**
-                $$ \nabla \cdot \mathbf{u} = 0 $$
-                where:
-                <ul class="list-disc list-inside ml-4 text-gray-700">
-                    <li>$\mathbf{u}(x,y,z,t)$ is the fluid velocity vector field.</li>
-                    <li>$p$ is the pressure, ensuring incompressibility.</li>
-                    <li>$\nu$ is the kinematic viscosity, representing fluid friction.</li>
-                </ul>
+                This simulator provides a **conceptual visualization** of **3D incompressible fluid dynamics**. It numerically solves a simplified version of the Navier-Stokes equations, which are fundamental to describing how fluids like air and water move. The goal is to help you build an intuition for complex fluid phenomena like turbulence, vortex dynamics, and energy dissipation.
             </p>
             <div class="mt-4 mb-4 text-red-600 font-semibold border border-red-500 p-3 rounded-md">
-                <strong class="underline">CRITICAL CLARIFICATION:</strong> This simulator uses a simplified numerical scheme for browser compatibility and conceptual demonstration. It is **NOT** a high-fidelity Computational Fluid Dynamics (CFD) tool suitable for rigorous quantitative analysis. Specifically, it **cannot be used to formally prove or disprove the Navier-Stokes existence and smoothness conjecture.** The conjecture concerns the analytical properties of solutions to the full, continuous equations, which requires advanced mathematical techniques beyond numerical simulation.
+                <strong class="underline">CRITICAL NOTE FOR RESEARCHERS:</strong> This tool is for educational and conceptual purposes only. It uses a simplified numerical scheme and is **NOT** a high-fidelity Computational Fluid Dynamics (CFD) tool. It **cannot be used to formally prove or disprove the Navier-Stokes existence and smoothness Millennium Prize Problem.** That is a question of pure mathematics concerning the properties of the continuous equations, not numerical approximations.
             </div>
 
-            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">2. Simulation Parameters</h3>
+            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">2. Quick Start Guide</h3>
+            <ol class="list-decimal list-inside ml-4 text-gray-700 space-y-2">
+                <li><b>Set Parameters:</b> Adjust the sliders for Grid Resolution, Viscosity, etc., on the left panel to define your fluid.</li>
+                <li><b>(or) Choose a Preset:</b> Click a preset button like "Turbulence" or "Stable Flow" to load a pre-configured scenario.</li>
+                <li><b>Run Simulation:</b> Click the main "Simulation" button to start the calculation.</li>
+                <li><b>Observe Live:</b> Watch the 3D visualization evolve. You can rotate (left-click), pan (right-click), and zoom (scroll) the view. The live metrics will update on the right.</li>
+                <li><b>Stop & Analyze:</b> Once the simulation is complete (or you click "Stop"), the detailed "Analysis" and "Metrics" sections below will become populated with data from the final state of the fluid.</li>
+                <li><b>Interpret with AI:</b> If you have a Gemini API key, you can use the "Results", "Ask Einstein", and "Q&A" buttons for an AI-powered analysis of the simulation.</li>
+            </ol>
+
+            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">3. The Physics & The Math: A Deep Dive</h3>
+            <h4 class="text-lg font-semibold text-gray-600 mb-2 mt-4">The Governing Equations</h4>
+            <p class="mb-4 text-gray-700">The core of the simulation is the Navier-Stokes momentum equation for an incompressible fluid:</p>
+            <p class="text-center my-4">
+                $ \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} = -\frac{1}{\rho}\nabla p + \nu \nabla^2 \mathbf{u} $
+            </p>
             <ul class="list-disc list-inside ml-4 text-gray-700 space-y-2">
-                <li><b>Grid Resolution (N):</b> The number of discrete points along each dimension (N x N x N). Higher N means finer resolution but significantly increases computational cost.</li>
-                <li><b>Kinematic Viscosity ($\nu$):</b> Controls the fluid's resistance to flow. Higher $\nu$ leads to faster smoothing and more rapid dissipation of energy.</li>
-                <li><b>Time Step ($\Delta t$):</b> The duration of each simulation step. Larger $\Delta t$ can speed up the simulation but may lead to numerical instability.</li>
-                <li><b>Initial Condition:</b> The starting state of the fluid (e.g., a central vortex, a jet, or random noise).</li>
-                 <li><b>Visualization Mode:</b> Selects what quantity is displayed: velocity vectors, density (passive dye), or vorticity (local spin).</li>
+                <li>$ \mathbf{u}(x,y,z,t) $ is the fluid velocity vector.</li>
+                <li>$ \frac{\partial \mathbf{u}}{\partial t} $ (Unsteady Term): How velocity changes at a point over time.</li>
+                <li>$ (\mathbf{u} \cdot \nabla)\mathbf{u} $ (Advection/Convection Term): How the fluid's own motion carries its momentum around. This is a non-linear term and is the source of most of the complexity, including turbulence.</li>
+                <li>$ -\frac{1}{\rho}\nabla p $ (Pressure Gradient Term): How differences in pressure ($p$) create forces that push the fluid.</li>
+                <li>$ \nu \nabla^2 \mathbf{u} $ (Viscous Diffusion Term): Represents fluid friction, where $\nu$ is the kinematic viscosity. This term smooths out the flow and dissipates energy.</li>
+            </ul>
+            <p class="mt-4 text-gray-700">This is coupled with the incompressibility condition, which states that mass is conserved (density is constant):</p>
+            <p class="text-center my-2">$ \nabla \cdot \mathbf{u} = 0 $</p>
+
+            <h4 class="text-lg font-semibold text-gray-600 mb-2 mt-4">Key Physical Quantities & Metrics</h4>
+            <ul class="list-disc list-inside ml-4 text-gray-700 space-y-3">
+                <li><b>Vorticity ($\omega$):</b> Defined as the curl of velocity, $ \omega = \nabla \times \mathbf{u} $, vorticity measures the local "spin" or rotation of a fluid parcel. Regions of high vorticity are where the flow is swirling intensely.</li>
+                <li><b>Kinetic Energy ($E_k$):</b> The total energy of motion, $ E_k = \frac{1}{2} \int_V |\mathbf{u}|^2 dV $. In a closed system, this energy must be dissipated by viscosity, so it typically decays over time.</li>
+                <li><b>Enstrophy ($\mathcal{E}$):</b> The integral of squared vorticity, $ \mathcal{E} = \frac{1}{2} \int_V |\omega|^2 dV $. It represents the rate of energy dissipation due to viscosity. In turbulent flows, enstrophy can increase dramatically through a process called vortex stretching.</li>
+                <li><b>Helicity ($\mathcal{H}$):</b> Defined as $ \mathcal{H} = \int_V \mathbf{u} \cdot \omega \, dV $, helicity measures the "knottedness" or alignment of vortex lines with the flow direction.</li>
+                <li><b>Reynolds Number ($Re$):</b> The crucial dimensionless ratio of inertial forces to viscous forces, $ Re = \frac{UL}{\nu} $. Low $Re$ flows are smooth and laminar; high $Re$ flows are chaotic and turbulent.</li>
+                <li><b>Kolmogorov Length Scale ($\eta$):</b> In turbulence, energy "cascades" from large eddies to small ones. The Kolmogorov scale, $ \eta = (\nu^3 / \epsilon)^{1/4} $ (where $\epsilon$ is the energy dissipation rate), is the smallest length scale in the flow, where viscosity finally dominates and dissipates the energy into heat. A good simulation requires the grid spacing to be smaller than $\eta$.</li>
             </ul>
 
-            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">3. Interpreting the Results</h3>
+            <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">4. How to Analyze the Plots & Data</h3>
+            <h4 class="text-lg font-semibold text-gray-600 mb-2 mt-4">The Kinetic Energy Spectrum</h4>
+            <p class="mb-2 text-gray-700">This log-log plot is the most important tool for turbulence analysis. It shows how the fluid's kinetic energy $E$ is distributed across different length scales (represented by wavenumber $k$; small $k$ = large scales, large $k$ = small scales). Look for three distinct regions:</p>
             <ul class="list-disc list-inside ml-4 text-gray-700 space-y-2">
-                <li><b>3D Visualization:</b> Use your mouse to rotate (left-click), pan (right-click), and zoom (scroll wheel). Observe how flow patterns evolve. The color legend (green to red) indicates the local vorticity or "spin" intensity.</li>
-                <li><b>Time-Series Plots:</b> These charts show the evolution of the fluid's total motion energy (Kinetic Energy), total "spin" energy (Enstrophy), and structural "knottedness" (Helicity).</li>
-                <li><b>Detailed Analysis Tabs:</b> After a simulation completes, this section provides quantitative analysis tools:
-                    <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
-                        <li><b>Distribution Analysis:</b> Histograms showing the statistical spread of velocity, vorticity, and pressure.</li>
-                        <li><b>Energy Spectrum:</b> A log-log plot of kinetic energy vs. wavenumber, essential for turbulence analysis. Look for the characteristic -5/3 slope.</li>
-                        <li><b>2D Slice Viewer:</b> An interactive tool to view heatmaps of variables on a 2D plane cutting through the 3D domain.</li>
-                    </ul>
-                </li>
+                <li><b>Energy-Containing Range (low $k$):</b> The largest scales where energy is introduced into the flow.</li>
+                <li><b>Inertial Range (mid $k$):</b> Energy cascades from large eddies to smaller ones without much dissipation. Here, developed turbulence follows the famous <b>Kolmogorov -5/3 power law</b>, $ E(k) \propto k^{-5/3} $. The dashboard plots a reference line with this slope. If your spectrum matches this slope, you are observing a key feature of turbulence.</li>
+                <li><b>Dissipation Range (high $k$):</b> At the smallest scales (near $\eta$), viscosity becomes dominant and dissipates the energy. The spectrum falls off very steeply here.</li>
             </ul>
-             
+
+            <h4 class="text-lg font-semibold text-gray-600 mb-2 mt-4">Distribution Histograms</h4>
+            <p class="mb-2 text-gray-700">These plots show the statistical distribution of key quantities at the final simulation time. Long "tails" in the vorticity distribution, for example, are a hallmark of turbulence, indicating the presence of rare but extremely intense vortex structures.</p>
+
+            <h4 class="text-lg font-semibold text-gray-600 mb-2 mt-4">2D Slice Viewer</h4>
+            <p class="mb-2 text-gray-700">This interactive tool allows you to inspect 2D cross-sections of the 3D data. You can select the physical variable (Vorticity, Velocity, Pressure), the axis to slice along (X, Y, Z), and the specific slice index.</p>
+            <ul class="list-disc list-inside ml-4 text-gray-700 space-y-2">
+                <li><b>Single Point Analysis:</b> Click on any point in the graphical slice or the numerical grid to open a detailed modal showing local vector and scalar values, including velocity gradients.</li>
+                <li><b>Multi-Pixel Analysis (New!):</b> Check the "Enable Multi-Pixel Analysis" box. In this mode, you can single-click multiple cells on the numerical grid to add them to a selection. When you are finished, double-click anywhere on the grid. A tooltip will appear showing aggregate statistics (mean, standard deviation, min, max) for all the points you selected. This is useful for analyzing regions of interest.</li>
+            </ul>
+
             <div id="apiKeyHelpSection">
-                <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">4. Acquiring a Gemini API Key</h3>
+                <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">5. Acquiring a Gemini API Key</h3>
                 <p class="mb-4 text-gray-700">To enable the AI-powered interpretation features (Results, Ask Einstein, Q&A), you need a Gemini API key. You can get a free key from Google AI Studio.</p>
                 <ol class="list-decimal list-inside ml-4 text-gray-700 space-y-2">
                     <li>Visit the Google AI Studio website: <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 hover:underline">https://aistudio.google.com/</a></li>
@@ -569,7 +672,7 @@
             </div>
 
             <div id="acknowledgementsSection">
-                <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">5. Acknowledgements</h3>
+                <h3 class="text-xl font-semibold text-gray-700 mb-2 mt-6">6. Acknowledgements</h3>
                 <p class="mb-4 text-gray-700">This simulator was built using a combination of powerful open-source technologies. We gratefully acknowledge the creators and maintainers of these projects:</p>
                 <ul class="list-disc list-inside ml-4 text-gray-700 space-y-3">
                     <li><b>HTML5, CSS3, & JavaScript (ES6+):</b> The fundamental technologies of the web.</li>
@@ -639,6 +742,19 @@
             </div>
             <p class="text-sm text-gray-500 mt-4 italic">
                 (Interpretation provided by Gemini LLM. It is for conceptual understanding and does not constitute formal scientific analysis.)
+            </p>
+        </div>
+    </div>
+    
+    <div id="mathDetailModal" class="modal">
+        <div class="modal-content w-11/12 md:w-3/4 lg:w-2/3">
+            <span class="close-button">&times;</span>
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Detailed Analysis at Point (<span id="mathDetailCoords"></span>)</h2>
+            <div id="mathDetailContent" class="text-gray-700 prose max-w-none text-sm">
+                <!-- Content will be generated by JS -->
+            </div>
+            <p class="text-xs text-gray-500 mt-4 italic">
+                (Gradients are calculated using a second-order central difference scheme.)
             </p>
         </div>
     </div>
@@ -925,6 +1041,12 @@
                 this.finalStateSnapshot = null;
                 this.simulationSnapshots = [];
                 this.simulationTimeSteps = [];
+                this.lastHighlightedCell = null;
+                this.selectedCellElement = null;
+                this.currentSliceData = { data: null, min: 0, max: 0, variable: '', axis: '', index: 0 };
+                this.selectedPoint = { i: null, j: null, k: null, gridX: null, gridY: null };
+                this.isMultiSelectMode = false;
+                this.selectedPixels = [];
 
                 this.velocityArrows = new THREE.Group(); this.densitySpheres = new THREE.Group(); this.vorticitySpheres = new THREE.Group();
                 
@@ -944,8 +1066,9 @@
                     geminiApiKeyInput: document.getElementById('geminiApiKeyInput'),
                     getApiKeyLink: document.getElementById('getApiKeyLink'),
                     progressBar: document.getElementById('progressBar'), threeJsContainer: document.getElementById('threeJsContainer'), performanceWarning: document.getElementById('performanceWarning'),
-                    interpretationModal: document.getElementById('interpretationModal'), legalModal: document.getElementById('legalModal'), aiInterpretationModal: document.getElementById('aiInterpretationModal'),
+                    interpretationModal: document.getElementById('interpretationModal'), legalModal: document.getElementById('legalModal'), aiInterpretationModal: document.getElementById('aiInterpretationModal'), mathDetailModal: document.getElementById('mathDetailModal'),
                     closeModalButtons: document.querySelectorAll('.modal .close-button'), aiInterpretationContent: document.getElementById('aiInterpretationContent'),
+                    mathDetailCoords: document.getElementById('mathDetailCoords'), mathDetailContent: document.getElementById('mathDetailContent'),
                     legalLink: document.getElementById('legalLink'), acknowledgementsLink: document.getElementById('acknowledgementsLink'),
                     metricKE_current: document.getElementById('metricKE_current'), metricKE_max: document.getElementById('metricKE_max'),
                     metricEnstrophy_current: document.getElementById('metricEnstrophy_current'), metricEnstrophy_max: document.getElementById('metricEnstrophy_max'),
@@ -971,6 +1094,12 @@
                     sliceVariableSelect: document.getElementById('sliceVariableSelect'), sliceAxisSelect: document.getElementById('sliceAxisSelect'),
                     sliceIndexSlider: document.getElementById('sliceIndexSlider'), sliceIndexLabel: document.getElementById('sliceIndexLabel'),
                     sliceColorbarMin: document.getElementById('sliceColorbarMin'), sliceColorbarMax: document.getElementById('sliceColorbarMax'),
+                    sliceGridContainer: document.getElementById('sliceGridContainer'),
+                    sliceInfoPanel: document.getElementById('sliceInfoPanel'),
+                    sliceValueSymbol: document.getElementById('sliceValueSymbol'),
+                    sliceLiveValue: document.getElementById('sliceLiveValue'),
+                    multiSelectCheckbox: document.getElementById('multiSelectCheckbox'),
+                    multiSelectActiveMessage: document.getElementById('multiSelectActiveMessage'),
                 };
                 
                 this.presetButtons = [
@@ -987,6 +1116,13 @@
 
                 this._boundHandleTooltipShow = this.handleTooltipShow.bind(this);
                 this._boundHandleTooltipHide = this.handleTooltipHide.bind(this);
+                this._boundHandleSliceHover = this.handleSliceHover.bind(this);
+                this._boundHandleSliceLeave = this.handleSliceLeave.bind(this);
+                this._boundHandleGridHover = this.handleGridHover.bind(this);
+                this._boundHandleGridLeave = this.handleGridLeave.bind(this);
+                this._boundHandleSliceClick = this.handleSliceClick.bind(this);
+                this._boundHandleGridClick = this.handleGridClick.bind(this);
+                this._boundHandleGridDoubleClick = this.handleGridDoubleClick.bind(this);
                 
                 this.setupEventListeners();
                 this.updateAllSliderTrackColors();
@@ -1064,6 +1200,8 @@
                 this.elements.enableTooltips.onchange = (e) => { this.tooltipsEnabled = e.target.checked; if(!this.tooltipsEnabled) this.handleTooltipHide(); };
                 this.elements.mainContentArea.addEventListener('mouseover', this._boundHandleTooltipShow);
                 this.elements.mainContentArea.addEventListener('mouseout', this._boundHandleTooltipHide);
+                this.elements.mainContentArea.addEventListener('mousemove', this._boundHandleTooltipShow);
+
 
                 this.elements.geminiApiKeyInput.oninput = () => this.validateAndSetApiKey();
                 
@@ -1081,35 +1219,316 @@
                     this.updateSliderTrackColor(this.elements.sliceIndexSlider);
                     this.drawCurrentSlice();
                 };
+
+                this.elements.multiSelectCheckbox.onchange = (e) => this.toggleMultiSelectMode(e.target.checked);
+
+                // Event listeners for slice grid hover/click
+                this.elements.sliceCanvas.addEventListener('mousemove', this._boundHandleSliceHover);
+                this.elements.sliceCanvas.addEventListener('mouseleave', this._boundHandleSliceLeave);
+                this.elements.sliceCanvas.addEventListener('click', this._boundHandleSliceClick);
+                this.elements.sliceGridContainer.addEventListener('mousemove', this._boundHandleGridHover);
+                this.elements.sliceGridContainer.addEventListener('mouseleave', this._boundHandleGridLeave);
+                this.elements.sliceGridContainer.addEventListener('click', this._boundHandleGridClick);
+                this.elements.sliceGridContainer.addEventListener('dblclick', this._boundHandleGridDoubleClick);
             }
             
-            async handleTooltipShow(event) {
-                if (!this.tooltipsEnabled) return;
-                const tooltipHost = event.target.closest('[data-tooltip-content]');
-                if (tooltipHost) {
-                    const tooltip = this.elements.dynamicTooltip;
-                    tooltip.innerHTML = tooltipHost.dataset.tooltipContent;
-                    tooltip.style.display = 'block';
-                    tooltip.classList.remove('show');
-                    if (window.MathJax?.typesetPromise) await window.MathJax.typesetPromise([tooltip]);
-                    const hostRect = tooltipHost.getBoundingClientRect();
-                    const tooltipRect = tooltip.getBoundingClientRect();
-                    let newTop = hostRect.top - tooltipRect.height - 8;
-                    let newLeft = hostRect.left + (hostRect.width / 2) - (tooltipRect.width / 2);
-                    if (newTop < 5) newTop = hostRect.bottom + 8;
-                    if (newLeft < 5) newLeft = 5;
-                    if (newLeft + tooltipRect.width > window.innerWidth) newLeft = window.innerWidth - tooltipRect.width - 5;
-                    tooltip.style.left = `${newLeft + window.scrollX}px`;
-                    tooltip.style.top = `${newTop + window.scrollY}px`;
-                    tooltip.classList.add('show');
-                }
+            handleTooltipShow(event) {
+                 const tooltip = this.elements.dynamicTooltip;
+                 const tooltipHost = event.target.closest('[data-tooltip-content]');
+ 
+                 const sliceCanvasHost = event.target.closest('#sliceCanvas');
+                 const sliceGridHost = event.target.closest('.slice-grid-cell');
+                 
+                 // Value tooltip for slice views (only if not in multi-select mode analysis)
+                 if ((sliceCanvasHost || sliceGridHost) && this.finalStateSnapshot && !this.isMultiSelectMode) {
+                     const N = this.simulator.N;
+                     let gridX, gridY;
+ 
+                     if(sliceCanvasHost){
+                         const rect = sliceCanvasHost.getBoundingClientRect();
+                         const mouseX = event.clientX - rect.left;
+                         const mouseY = event.clientY - rect.top;
+                         gridX = Math.floor((mouseX / sliceCanvasHost.clientWidth) * N);
+                         gridY = Math.floor((mouseY / sliceCanvasHost.clientHeight) * N);
+                     } else {
+                         gridX = parseInt(sliceGridHost.dataset.x, 10);
+                         gridY = parseInt(sliceGridHost.dataset.y, 10);
+                     }
+ 
+                     if (this.currentSliceData.data && gridX >= 0 && gridX < N && gridY >= 0 && gridY < N) {
+                         const value = this.currentSliceData.data[gridX][gridY];
+                         tooltip.innerHTML = value.toPrecision(4);
+                         tooltip.style.left = `${event.pageX + 15}px`;
+                         tooltip.style.top = `${event.pageY + 15}px`;
+                         tooltip.classList.add('show');
+                         return; // Prioritize value tooltip
+                     }
+                 }
+ 
+                 // General purpose tooltip
+                 if (this.tooltipsEnabled && tooltipHost) {
+                     tooltip.innerHTML = tooltipHost.dataset.tooltipContent;
+                     if (window.MathJax?.typesetPromise) {
+                        window.MathJax.typesetPromise([tooltip]);
+                     }
+                     const hostRect = tooltipHost.getBoundingClientRect();
+                     tooltip.style.left = `${hostRect.left + hostRect.width / 2 - tooltip.offsetWidth / 2}px`;
+                     tooltip.style.top = `${hostRect.top - tooltip.offsetHeight - 8}px`;
+                     tooltip.classList.add('show');
+                 }
             }
 
             handleTooltipHide() {
                 const tooltip = this.elements.dynamicTooltip;
-                if(tooltip) tooltip.classList.remove('show');
+                if(tooltip) {
+                     tooltip.classList.remove('show');
+                }
             }
             
+            updateSliceHighlight(gridX, gridY) {
+                if (this.lastHighlightedCell) {
+                    this.lastHighlightedCell.classList.remove('slice-grid-cell-highlight');
+                }
+            
+                if (gridX === null || !this.finalStateSnapshot) {
+                    this.lastHighlightedCell = null;
+                    return;
+                }
+            
+                const cellId = `slice-cell-${gridX}-${gridY}`;
+                const cell = document.getElementById(cellId);
+            
+                if (cell) {
+                    cell.classList.add('slice-grid-cell-highlight');
+                    this.lastHighlightedCell = cell;
+                }
+            }
+
+            handleSliceHover(event) {
+                if (!this.currentSliceData.data) return;
+                const canvas = this.elements.sliceCanvas;
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+
+                const N = this.simulator.N;
+                const gridX = Math.floor((mouseX / canvas.clientWidth) * N);
+                const gridY = Math.floor((mouseY / canvas.clientHeight) * N);
+
+                this.updateSliceHighlight(gridX, gridY);
+                this.updateLiveValueDisplay(gridX, gridY);
+            }
+
+            handleSliceLeave() { 
+                this.updateSliceHighlight(null);
+                this.updateLiveValueDisplay(null, null);
+            }
+
+            handleGridHover(event) {
+                const cell = event.target.closest('.slice-grid-cell');
+                if (!cell || !this.currentSliceData.data) {
+                    this.updateSliceHighlight(null);
+                    this.updateLiveValueDisplay(null, null);
+                    return;
+                }
+                const gridX = parseInt(cell.dataset.x, 10);
+                const gridY = parseInt(cell.dataset.y, 10);
+                this.updateSliceHighlight(gridX, gridY);
+                this.updateLiveValueDisplay(gridX, gridY);
+            }
+
+            handleGridLeave() {
+                this.updateSliceHighlight(null); 
+                this.updateLiveValueDisplay(null, null);
+            }
+            
+            handleSliceClick(event) {
+                if (!this.finalStateSnapshot || this.isMultiSelectMode) return;
+                const canvas = this.elements.sliceCanvas;
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+                const N = this.simulator.N;
+                const gridX = Math.floor((mouseX / canvas.clientWidth) * N);
+                const gridY = Math.floor((mouseY / canvas.clientHeight) * N);
+                this.selectCell(gridX, gridY);
+            }
+
+            handleGridClick(event) {
+                const cell = event.target.closest('.slice-grid-cell');
+                if (!cell || !this.finalStateSnapshot) return;
+                const gridX = parseInt(cell.dataset.x, 10);
+                const gridY = parseInt(cell.dataset.y, 10);
+
+                if (this.isMultiSelectMode) {
+                    this.toggleMultiPixelSelection(gridX, gridY);
+                } else {
+                    this.selectCell(gridX, gridY);
+                }
+            }
+
+            handleGridDoubleClick(event) {
+                if (!this.isMultiSelectMode || this.selectedPixels.length === 0) return;
+                
+                const values = this.selectedPixels.map(p => this.currentSliceData.data[p.x][p.y]);
+                const count = values.length;
+                const sum = values.reduce((a, b) => a + b, 0);
+                const mean = sum / count;
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                const stdDev = Math.sqrt(values.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / count);
+
+                const tooltip = this.elements.dynamicTooltip;
+                tooltip.innerHTML = `
+                    <div class="font-bold text-center mb-2 border-b pb-1">Multi-Pixel Analysis</div>
+                    <div class="tooltip-grid">
+                        <span class="tooltip-grid-label">Count:</span> <span>${count}</span>
+                        <span class="tooltip-grid-label">Mean:</span> <span>${mean.toExponential(3)}</span>
+                        <span class="tooltip-grid-label">Std Dev:</span> <span>${stdDev.toExponential(3)}</span>
+                        <span class="tooltip-grid-label">Min:</span> <span>${min.toExponential(3)}</span>
+                        <span class="tooltip-grid-label">Max:</span> <span>${max.toExponential(3)}</span>
+                    </div>
+                `;
+                tooltip.style.left = `${event.pageX + 15}px`;
+                tooltip.style.top = `${event.pageY + 15}px`;
+                tooltip.classList.add('show');
+            }
+
+            toggleMultiSelectMode(isActive) {
+                this.isMultiSelectMode = isActive;
+                this.elements.multiSelectActiveMessage.style.display = isActive ? 'block' : 'none';
+                this.selectedPixels = []; // Reset selection
+                
+                // Clear all visual selections
+                document.querySelectorAll('.slice-grid-cell-multiselected').forEach(el => el.classList.remove('slice-grid-cell-multiselected'));
+                if (this.selectedCellElement) {
+                    this.selectedCellElement.classList.remove('slice-grid-cell-selected');
+                    this.selectedCellElement = null;
+                }
+            }
+
+            toggleMultiPixelSelection(x, y) {
+                const pixelId = `${x},${y}`;
+                const index = this.selectedPixels.findIndex(p => `${p.x},${y}` === pixelId);
+                const cellElement = document.getElementById(`slice-cell-${x}-${y}`);
+
+                if (index > -1) {
+                    this.selectedPixels.splice(index, 1);
+                    cellElement?.classList.remove('slice-grid-cell-multiselected');
+                } else {
+                    this.selectedPixels.push({ x, y });
+                    cellElement?.classList.add('slice-grid-cell-multiselected');
+                }
+            }
+
+            updateLiveValueDisplay(gridX, gridY) {
+                const { sliceValueSymbol, sliceLiveValue } = this.elements;
+                const value = this.currentSliceData?.data?.[gridX]?.[gridY];
+            
+                if (typeof value !== 'number' || !isFinite(value)) {
+                    sliceLiveValue.textContent = "N/A";
+                    return;
+                }
+                
+                const symbols = { vorticity: '|\\omega|', velocity: '|\\mathbf{u}|', pressure: 'p' };
+                const variable = this.elements.sliceVariableSelect.value;
+                sliceValueSymbol.textContent = `$${symbols[variable] || ''}$`;
+                sliceLiveValue.textContent = value.toExponential(3);
+            
+                if (window.MathJax?.typesetPromise) {
+                    window.MathJax.typesetPromise([sliceValueSymbol]);
+                }
+            }
+
+            selectCell(gridX, gridY) {
+                if (gridX === undefined || gridY === undefined || gridX === null || gridY === null) return;
+
+                if (this.selectedCellElement) {
+                    this.selectedCellElement.classList.remove('slice-grid-cell-selected');
+                }
+                const cellId = `slice-cell-${gridX}-${gridY}`;
+                this.selectedCellElement = document.getElementById(cellId);
+                if (this.selectedCellElement) {
+                    this.selectedCellElement.classList.add('slice-grid-cell-selected');
+                }
+                
+                const axis = this.elements.sliceAxisSelect.value;
+                const sliceIndex = parseInt(this.elements.sliceIndexSlider.value);
+                
+                this.selectedPoint.gridX = gridX;
+                this.selectedPoint.gridY = gridY;
+
+                if (axis === 'z') { this.selectedPoint.i = gridX + 1; this.selectedPoint.j = gridY + 1; this.selectedPoint.k = sliceIndex; }
+                else if (axis === 'y') { this.selectedPoint.i = gridX + 1; this.selectedPoint.j = sliceIndex; this.selectedPoint.k = gridY + 1; }
+                else if (axis === 'x') { this.selectedPoint.i = sliceIndex; this.selectedPoint.j = gridX + 1; this.selectedPoint.k = gridY + 1; }
+
+                this.showMathDetails();
+            }
+
+            showMathDetails() {
+                if (!this.selectedPoint.i || !this.finalStateSnapshot) return;
+
+                const { i, j, k } = this.selectedPoint;
+                this.elements.mathDetailCoords.textContent = `${i-1}, ${j-1}, ${k-1}`;
+                
+                const data = this.finalStateSnapshot;
+                const h2 = 2 * this.simulator.dx;
+
+                const u = data.u[i][j][k], v = data.v[i][j][k], w = data.w[i][j][k];
+                const p = data.p[i][j][k];
+
+                const dWdY = (data.w[i][j+1][k] - data.w[i][j-1][k]) / h2;
+                const dVdZ = (data.v[i][j][k+1] - data.v[i][j][k-1]) / h2;
+                const omegaX = dWdY - dVdZ;
+
+                const dUdZ = (data.u[i][j][k+1] - data.u[i][j][k-1]) / h2;
+                const dWdX = (data.w[i+1][j][k] - data.w[i-1][j][k]) / h2;
+                const omegaY = dUdZ - dWdX;
+
+                const dVdX = (data.v[i+1][j][k] - data.v[i-1][j][k]) / h2;
+                const dUdY = (data.u[i][j+1][k] - data.u[i][j-1][k]) / h2;
+                const omegaZ = dVdX - dUdY;
+                
+                const velMag = Math.sqrt(u*u + v*v + w*w);
+                const vortMag = Math.sqrt(omegaX*omegaX + omegaY*omegaY + omegaZ*omegaZ);
+                
+                const f = (num) => num.toExponential(3);
+
+                const content = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                        <div class="bg-gray-100 p-3 rounded-md border">
+                            <h4 class="font-bold text-gray-700 mb-2">Primary Vectors</h4>
+                            <p>Velocity $\\mathbf{u} = (u, v, w)$</p>
+                            <p class="font-mono text-sm pl-4">(${f(u)}, ${f(v)}, ${f(w)})</p>
+                            <p class="mt-2">Vorticity $\\omega = \\nabla \\times \\mathbf{u}$</p>
+                            <p class="font-mono text-sm pl-4">(${f(omegaX)}, ${f(omegaY)}, ${f(omegaZ)})</p>
+                        </div>
+                        <div class="bg-gray-100 p-3 rounded-md border">
+                            <h4 class="font-bold text-gray-700 mb-2">Scalar Quantities</h4>
+                            <p>Pressure $p$: <span class="font-mono">${f(p)}</span></p>
+                            <p>Velocity Magnitude $|\\mathbf{u}|$: <span class="font-mono">${f(velMag)}</span></p>
+                            <p>Vorticity Magnitude $|\\omega|$: <span class="font-mono">${f(vortMag)}</span></p>
+                        </div>
+                        <div class="col-span-full bg-gray-100 p-3 rounded-md border">
+                            <h4 class="font-bold text-gray-700 mb-2">Local Velocity Gradients (Strain-Rate Tensor Components)</h4>
+                            <div class="grid grid-cols-3 gap-2 font-mono text-xs">
+                                <div>$\\frac{\\partial u}{\\partial x} = ${f((data.u[i+1][j][k] - data.u[i-1][j][k]) / h2)}$</div>
+                                <div>$\\frac{\\partial u}{\\partial y} = ${f(dUdY)}$</div>
+                                <div>$\\frac{\\partial u}{\\partial z} = ${f(dUdZ)}$</div>
+                                <div>$\\frac{\\partial v}{\\partial x} = ${f(dVdX)}$</div>
+                                <div>$\\frac{\\partial v}{\\partial y} = ${f((data.v[i][j+1][k] - data.v[i][j-1][k]) / h2)}$</div>
+                                <div>$\\frac{\\partial v}{\\partial z} = ${f(dVdZ)}$</div>
+                                <div>$\\frac{\\partial w}{\\partial x} = ${f(dWdX)}$</div>
+                                <div>$\\frac{\\partial w}{\\partial y} = ${f(dWdY)}$</div>
+                                <div>$\\frac{\\partial w}{\\partial z} = ${f((data.w[i][j][k+1] - data.w[i][j][k-1]) / h2)}$</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                this.elements.mathDetailContent.innerHTML = content;
+                this.showModal('mathDetailModal');
+            }
+
             applyPreset(config) {
                 if (this.isSimulationRunning) this.handleRunStop();
                 this.elements.inputGridSize.value = config.gridSize;
@@ -1169,6 +1588,8 @@
                 this.isSimulationRunning = false; this.isSimulationPaused = false; this.isSimulationFinished = false; this.currentSimStep = 0;
                 this.finalStateSnapshot = null; this.simulationSnapshots = []; this.simulationTimeSteps = [];
                 this.elements.progressBar.style.width = '0%';
+                this.toggleMultiSelectMode(false);
+                this.elements.multiSelectCheckbox.checked = false;
                 
                 this.elements.derivedMetricsWrapper.style.display = 'none';
                 this.elements.analysisPlaceholderWrapper.style.display = 'block';
@@ -1593,6 +2014,46 @@
                 this.charts.energySpectrum.update();
             }
 
+            spectral(t) {
+                // Volcano/spectral colormap: Dark Blue -> Blue -> Cyan -> Green -> Yellow -> Red -> Dark Red
+                const clamp = (val, min, max) => Math.max(min, Math.min(val, max));
+                t = clamp(t, 0.0, 1.0);
+                let r, g, b;
+
+                if (t < 0.15) { // Dark Blue to Blue
+                    const nt = t / 0.15;
+                    r = 0;
+                    g = 0;
+                    b = 104 + nt * (255 - 104);
+                } else if (t < 0.35) { // Blue to Cyan
+                    const nt = (t - 0.15) / 0.20;
+                    r = 0;
+                    g = nt * 255;
+                    b = 255;
+                } else if (t < 0.55) { // Cyan to Green
+                    const nt = (t - 0.35) / 0.20;
+                    r = 0;
+                    g = 255;
+                    b = 255 - nt * 255;
+                } else if (t < 0.75) { // Green to Yellow
+                    const nt = (t - 0.55) / 0.20;
+                    r = nt * 255;
+                    g = 255;
+                    b = 0;
+                } else if (t < 0.90) { // Yellow to Red
+                    const nt = (t - 0.75) / 0.15;
+                    r = 255;
+                    g = 255 - nt * 255;
+                    b = 0;
+                } else { // Red to Dark Red
+                    const nt = (t - 0.90) / 0.10;
+                    r = 255 - nt * (255 - 104);
+                    g = 0;
+                    b = 0;
+                }
+                return [Math.round(r), Math.round(g), Math.round(b)];
+            }
+
             drawCurrentSlice(sourceData = this.finalStateSnapshot) {
                 if (!sourceData) return;
                 const N = this.simulator.N;
@@ -1641,18 +2102,16 @@
                         if (val > maxVal) maxVal = val;
                     }
                 }
+                
+                this.currentSliceData = { data: data2d, min: minVal, max: maxVal, variable, axis, index: sliceIndex };
             
-                // Render heatmap
+                // Render heatmap to main canvas
                 const ctx = this.elements.sliceCanvas.getContext('2d');
                 const imageData = ctx.createImageData(N, N);
-                const viridis = (t) => {
-                    const c = (x) => Math.floor(Math.max(0, Math.min(255, x * 255)));
-                    return [c(Math.sqrt(t)), c(t**3), c(Math.sin(t*Math.PI))];
-                };
                 for (let y = 0; y < N; y++) {
                     for (let x = 0; x < N; x++) {
                         const normalized = (maxVal > minVal) ? (data2d[x][y] - minVal) / (maxVal - minVal) : 0;
-                        const [r, g, b] = viridis(normalized);
+                        const [r, g, b] = this.spectral(normalized);
                         const index = (y * N + x) * 4;
                         imageData.data[index] = r;
                         imageData.data[index + 1] = g;
@@ -1661,7 +2120,6 @@
                     }
                 }
                 
-                // Draw to an offscreen canvas and scale up to prevent blurriness
                 const offscreenCanvas = document.createElement('canvas');
                 offscreenCanvas.width = N;
                 offscreenCanvas.height = N;
@@ -1670,16 +2128,56 @@
                 ctx.imageSmoothingEnabled = false;
                 ctx.clearRect(0, 0, 400, 400);
                 ctx.drawImage(offscreenCanvas, 0, 0, 400, 400);
+
+                // Populate the data grid
+                const sliceGridContainer = this.elements.sliceGridContainer;
+                sliceGridContainer.innerHTML = '';
+                sliceGridContainer.style.setProperty('--slice-grid-n', N);
+
+                for (let y = 0; y < N; y++) {
+                    for (let x = 0; x < N; x++) {
+                        const val = data2d[x][y];
+                        const normalized = (maxVal > minVal) ? (val - minVal) / (maxVal - minVal) : 0;
+                        const [r, g, b] = this.spectral(normalized);
+                        
+                        const cell = document.createElement('div');
+                        cell.className = 'slice-grid-cell';
+                        cell.id = `slice-cell-${x}-${y}`;
+                        cell.dataset.x = x;
+                        cell.dataset.y = y;
+                        cell.style.backgroundColor = `rgba(${r},${g},${b}, 0.5)`;
+                        sliceGridContainer.appendChild(cell);
+                    }
+                }
+
+                // Re-apply selections after redraw
+                if (this.isMultiSelectMode) {
+                    this.selectedPixels.forEach(p => {
+                       document.getElementById(`slice-cell-${p.x}-${p.y}`)?.classList.add('slice-grid-cell-multiselected');
+                    });
+                } else if (this.selectedCellElement && this.selectedPoint.gridX !== null) {
+                    const cellId = `slice-cell-${this.selectedPoint.gridX}-${this.selectedPoint.gridY}`;
+                    const newCellElement = document.getElementById(cellId);
+                    if (newCellElement) {
+                        newCellElement.classList.add('slice-grid-cell-selected');
+                        this.selectedCellElement = newCellElement; // Update reference to the new DOM element
+                    } else {
+                        // The cell is gone, so clear selection state
+                        this.selectedCellElement = null;
+                        this.selectedPoint = { i: null, j: null, k: null, gridX: null, gridY: null };
+                    }
+                }
             
-                // Render colorbar
+                // Render horizontal colorbar
                 const cb_ctx = this.elements.sliceColorbarCanvas.getContext('2d');
-                const cb_gradient = cb_ctx.createLinearGradient(0, 400, 0, 0);
-                for (let i = 0; i <= 1; i += 0.1) {
-                    const [r,g,b] = viridis(i);
+                cb_ctx.clearRect(0, 0, cb_ctx.canvas.width, cb_ctx.canvas.height);
+                const cb_gradient = cb_ctx.createLinearGradient(0, 0, cb_ctx.canvas.width, 0);
+                for (let i = 0; i <= 1; i += 0.01) {
+                    const [r,g,b] = this.spectral(i);
                     cb_gradient.addColorStop(i, `rgb(${r},${g},${b})`);
                 }
                 cb_ctx.fillStyle = cb_gradient;
-                cb_ctx.fillRect(0, 0, 20, 400);
+                cb_ctx.fillRect(0, 0, cb_ctx.canvas.width, cb_ctx.canvas.height);
                 this.elements.sliceColorbarMin.textContent = minVal.toExponential(2);
                 this.elements.sliceColorbarMax.textContent = maxVal.toExponential(2);
             }
@@ -1759,6 +2257,47 @@
                 }
             }
 
+            exportData() {
+                if (!this.isSimulationFinished) {
+                    alert("Please run a simulation to completion before exporting data.");
+                    return;
+                }
+            
+                const dataToExport = {
+                    simulationParameters: {
+                        gridSize: this.simulator.N,
+                        viscosity: this.simulator.viscosity,
+                        dt: this.simulator.dt,
+                        totalSteps: this.totalSimSteps,
+                        initialCondition: this.elements.paramInitCondition.value,
+                    },
+                    metricsHistory: this.metricsHistory,
+                    finalMetrics: {
+                        kineticEnergy: this.metricsHistory.ke.slice(-1)[0] || 0,
+                        enstrophy: this.metricsHistory.enstrophy.slice(-1)[0] || 0,
+                        helicity: this.metricsHistory.helicity.slice(-1)[0] || 0,
+                        maxVelocity: this.maxMetrics.maxVel,
+                        maxVorticity: this.maxMetrics.maxVort,
+                    },
+                    current2DSlice: {
+                        variable: this.currentSliceData.variable,
+                        axis: this.currentSliceData.axis,
+                        index: this.currentSliceData.index,
+                        data: this.currentSliceData.data ? Array.from(this.currentSliceData.data, row => Array.from(row)) : null // Convert Float32Array to regular array
+                    }
+                };
+            
+                const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `fluid_sim_data_N${this.simulator.N}_${new Date().toISOString()}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
             playConversationAudio() {
                 const audio = this.elements.navierStokesAudio;
                 const btn = this.elements.btnConversation;
@@ -1791,7 +2330,7 @@
                 };
             
                 const hasData = this.currentSimStep > 0;
-                const canInterpret = hasData && this.geminiApiKey.length > 0;
+                const canInterpret = this.isSimulationFinished && this.geminiApiKey.length > 0;
                 const playbackControls = this.elements.playbackControls;
                 const playbackSlider = this.elements.playbackSlider;
             
